@@ -12,14 +12,14 @@ st.title("🛰️ Satellite Change Detection - West Bengal")
 # 1. Authenticate GEE
 def authenticate_ee():
     try:
-        if 'EE_KEY' in os.environ:
-            key_dict = json.loads(os.environ['EE_KEY'])
+        if 'EARTH_ENGINE_KEY' in os.environ:
+            key_dict = json.loads(os.environ['EARTH_ENGINE_KEY'])
             # Use the project_id from your JSON key
             project_id = key_dict.get('project_id') 
             credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_string=json.dumps(key_dict))
             ee.Initialize(credentials, project=project_id)
         else:
-            st.error("EE_KEY not found in environment variables. Please check your Secrets.")
+            st.error("EARTH_ENGINE_KEY not found in environment variables. Please check your Secrets.")
             st.stop()
     except Exception as e:
         st.error(f"Authentication failed: {e}")

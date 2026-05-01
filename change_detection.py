@@ -1,6 +1,8 @@
 import ee
 import json
 import os
+import gspread # For Google Sheets
+from datetime import datetime
 
 # 1. Authenticate using the Secret Key from GitHub
 key_dict = json.loads(os.environ['EE_KEY'])
@@ -34,3 +36,20 @@ urban_growth = change.gt(0.1).selfMask()
 # 5. Export result (for now, we print the area of change)
 stats = urban_growth.reduceRegion(reducer=ee.Reducer.sum(), geometry=roi, scale=10)
 print(f"Detected Urban Growth Area: {stats.getInfo()}")
+
+# 2. Add Google Sheets Logging
+def log_to_sheets(pixels, area):
+    # Authenticate with the same Service Account key used for EE
+    gc = gspread.service_account_from_dict(key_dict)
+    sh = gc.open_by_key('YOUR_SHEET_ID_HERE')
+    worksheet = sh.get_worksheet(0)
+    
+    row = [datetime.now().strftime("%Y-%m-%d"), "Dantan", pixels, area]
+    worksheet.append_row(row)
+
+# 3. Execution
+stats = urban_growth.reduceRegion(reducer=ee.Reducer.sum(), geometry=dantan_roi, scale=10).getInfo()
+pixel_count = stats.get('NDBI', 0)
+area_sqm = pixel_count * 100 # Sentinel-2 is 10m resolution
+
+log_to_sheets(pixel_count, area_sqm)

@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install earthengine-api
+        run: pip install earthengine-api gspread
       - name: Execute Script
         env:
           EE_KEY: ${{ secrets.EARTH_ENGINE_KEY }}

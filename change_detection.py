@@ -69,7 +69,17 @@ if date_before and date_after:
 
         # 4. Map Visualization
         st.subheader(f"Analysis: {date_before} vs {date_after}")
+        
+        # The updated map initialization
         Map = geemap.Map(center=[lat, lon], zoom=13)
+        
+        # Add layers with slightly adjusted visualization parameters for better contrast
+        Map.addLayer(before_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'green']}, 'Before NDBI')
+        Map.addLayer(after_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'red']}, 'After NDBI')
+        Map.addLayer(urban_growth, {'palette': 'yellow'}, 'Detected Growth (Yellow)')
+        
+        # Display the map using the geemap streamlit component
+        Map.to_streamlit(height=700)
         
         # Add layers
         Map.addLayer(before_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'green']}, 'Before NDBI')

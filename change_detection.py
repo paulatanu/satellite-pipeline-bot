@@ -9,20 +9,30 @@ from datetime import datetime
 st.set_page_config(layout="wide", page_title="Satellite Change Detection")
 st.title("🛰️ Satellite Change Detection - West Bengal")
 
-# 1. Authenticate GEE
+# 1. Authenticate GEE with specific secret matching check
 def authenticate_ee():
     try:
+        # Check if the secret exists
         if 'EARTH_ENGINE_KEY' in os.environ:
-            key_dict = json.loads(os.environ['EARTH_ENGINE_KEY'])
-            # Use the project_id from your JSON key
+            secret_content = os.environ['EARTH_ENGINE_KEY']
+            
+            # Try to parse the JSON
+            try:
+                key_dict = json.loads(secret_content)
+            except json.JSONDecodeError:
+                st.error("❌ The secret 'EARTH_ENGINE_KEY' is not a valid JSON. Check for missing braces { }.")
+                st.stop()
+                
             project_id = key_dict.get('project_id') 
             credentials = ee.ServiceAccountCredentials(key_dict['client_email'], key_string=json.dumps(key_dict))
             ee.Initialize(credentials, project=project_id)
         else:
-            st.error("EARTH_ENGINE_KEY not found in environment variables. Please check your Secrets.")
+            # Explicit warning if names don't match
+            st.warning("⚠️ Secret Mismatch: Could not find 'EARTH_ENGINE_KEY'. Please ensure your Streamlit Secret is named exactly 'EARTH_ENGINE_KEY' and not 'EE_KEY'.")
+            st.info("Go to: Manage App -> Settings -> Secrets to verify.")
             st.stop()
     except Exception as e:
-        st.error(f"Authentication failed: {e}")
+        st.error(f"❌ Authentication failed: {e}")
         st.stop()
 
 authenticate_ee()
@@ -31,63 +41,42 @@ authenticate_ee()
 with st.sidebar:
     st.header("Custom Settings")
     roi_coords = st.text_input("Coordinates (Lon, Lat)", "87.2697, 21.9507") # Default: Dantan
-    
-    # We set default dates so the app doesn't start with a 'None' error
     date_before = st.date_input("Select 'Before' Date", value=datetime(2023, 1, 1))
     date_after = st.date_input("Select 'After' Date", value=datetime(2024, 1, 1))
-    
-    threshold = st.slider("Change Threshold (Sensitivity)", 0.0, 0.5, 0.1, help="Higher = less sensitive to small changes")
+    threshold = st.slider("Change Threshold (Sensitivity)", 0.0, 0.5, 0.1)
 
 # 3. GIS Logic
 if date_before and date_after:
-    try:
-        lon, lat = map(float, roi_coords.split(","))
-        roi = ee.Geometry.Point([lon, lat]).buffer(5000)
+    with st.spinner('Processing Satellite Data...'):
+        try:
+            lon, lat = map(float, roi_coords.split(","))
+            roi = ee.Geometry.Point([lon, lat]).buffer(5000)
 
-        def get_ndbi(date_obj):
-            # Convert Python date to string for EE
-            date_str = date_obj.strftime('%Y-%m-%d')
-            ee_date = ee.Date(date_str)
-            end_date = ee_date.advance(1, 'month')
+            def get_ndbi(date_obj):
+                date_str = date_obj.strftime('%Y-%m-%d')
+                ee_date = ee.Date(date_str)
+                img = ee.ImageCollection("COPERNICUS/S2_HARMONIZED")\
+                        .filterBounds(roi)\
+                        .filterDate(ee_date, ee_date.advance(1, 'month'))\
+                        .sort('CLOUDY_PIXEL_PERCENTAGE')\
+                        .first()
+                return img.normalizedDifference(['B11', 'B8'])
+
+            before_img = get_ndbi(date_before)
+            after_img = get_ndbi(date_after)
+            change = after_img.subtract(before_img)
+            urban_growth = change.gt(threshold).selfMask()
+
+            # 4. Map Visualization (Cleaned up duplicates)
+            st.subheader(f"Urban Growth Detection: {date_before} vs {date_after}")
+            Map = geemap.Map(center=[lat, lon], zoom=13)
             
-            img = ee.ImageCollection("COPERNICUS/S2_HARMONIZED")\
-                    .filterBounds(roi)\
-                    .filterDate(ee_date, end_date)\
-                    .sort('CLOUDY_PIXEL_PERCENTAGE')\
-                    .first()
+            # Layer visualization
+            Map.addLayer(before_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'green']}, 'Before NDBI')
+            Map.addLayer(after_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'red']}, 'After NDBI')
+            Map.addLayer(urban_growth, {'palette': 'yellow'}, 'Detected Growth (Yellow)')
             
-            # NDBI = (SWIR - NIR) / (SWIR + NIR)
-            return img.normalizedDifference(['B11', 'B8'])
-
-        # Calculate Images
-        before_img = get_ndbi(date_before)
-        after_img = get_ndbi(date_after)
-        
-        # Calculate Change
-        change = after_img.subtract(before_img)
-        urban_growth = change.gt(threshold).selfMask()
-
-        # 4. Map Visualization
-        st.subheader(f"Analysis: {date_before} vs {date_after}")
-        
-        # The updated map initialization
-        Map = geemap.Map(center=[lat, lon], zoom=13)
-        
-        # Add layers with slightly adjusted visualization parameters for better contrast
-        Map.addLayer(before_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'green']}, 'Before NDBI')
-        Map.addLayer(after_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'red']}, 'After NDBI')
-        Map.addLayer(urban_growth, {'palette': 'yellow'}, 'Detected Growth (Yellow)')
-        
-        # Display the map using the geemap streamlit component
-        Map.to_streamlit(height=700)
-        
-        # Add layers
-        Map.addLayer(before_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'green']}, 'Before NDBI')
-        Map.addLayer(after_img, {'min': -0.5, 'max': 0.5, 'palette': ['blue', 'white', 'red']}, 'After NDBI')
-        Map.addLayer(urban_growth, {'palette': 'yellow'}, 'Detected Growth (Yellow)')
-        
-        # Display Map
-        Map.to_streamlit(height=700)
-        
-    except Exception as e:
-        st.warning(f"No clear imagery found for these dates or area. Try adjusting dates. Error: {e}")
+            Map.to_streamlit(height=700)
+            
+        except Exception as e:
+            st.warning(f"Analysis failed. This usually means no cloud-free images exist for these dates. Error: {e}")
